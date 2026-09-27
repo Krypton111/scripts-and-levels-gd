@@ -172,9 +172,9 @@ func stage_bullies_from_comlab() -> void:
 	# Bring the camera with the bullies while they leave ComLab 202 and approach
 	# the player. The conversation starts only after this movement is complete.
 	var targets := {
-		joe: player.global_position + Vector2(BULLY_APPROACH_STOP_DISTANCE, 34.0),
-		joey: player.global_position + Vector2(BULLY_APPROACH_STOP_DISTANCE + 20.0, 0.0),
-		joseph: player.global_position + Vector2(BULLY_APPROACH_STOP_DISTANCE, -34.0)
+		joe: player.global_position + Vector2(-BULLY_APPROACH_STOP_DISTANCE, 34.0),
+		joey: player.global_position + Vector2(-BULLY_APPROACH_STOP_DISTANCE - 20.0, 0.0),
+		joseph: player.global_position + Vector2(-BULLY_APPROACH_STOP_DISTANCE, -34.0)
 	}
 
 	var finished: Dictionary = {}
