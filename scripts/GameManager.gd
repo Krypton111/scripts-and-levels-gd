@@ -306,7 +306,7 @@ func get_challenge_return_position() -> Vector2:
 	return challenge_return_position
 
 
-func clear_challenge_return_position() -> void:
+func clear_challenge_position() -> void:
 	has_challenge_return_position = false
 
 
