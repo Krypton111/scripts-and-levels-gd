@@ -5,6 +5,7 @@ const COZY_CHOICE_UI = preload("res://scripts/PolishedChoiceUI.gd")
 # LECTURE ROOM BULLY INTERRUPTION CONTROLLER
 
 @onready var player: CharacterBody2D = $"../Player"
+@onready var cinematic_camera: Camera2D = $"../CinematicCamera"
 @onready var joe: CharacterBody2D = $"../Joe"
 @onready var joey: CharacterBody2D = $"../Joey"
 @onready var joseph: CharacterBody2D = $"../Joseph"
@@ -29,6 +30,9 @@ const BULLY_RUN_DURATION: float = 4.2
 const SIR_CHARLES_ENTER_SPEED: float = 95.0
 const SIR_CHARLES_ENTER_EXTRA_TIME: float = 0.35
 const CHOICE_PANEL_SIZE := Vector2(620.0, 250.0)
+const BULLY_APPROACH_SPEED: float = 82.0
+const BULLY_APPROACH_STOP_DISTANCE: float = 78.0
+const BULLY_CAMERA_ZOOM := Vector2(1.8, 1.8)
 
 const JOE_HD = preload("res://GAME ASSETS_/School (University of Continuous Help System Prime)/Character Sprites/32-bit Sprite Models/Bullies/Joe/Joe.png")
 const JOEY_HD = preload("res://GAME ASSETS_/School (University of Continuous Help System Prime)/Character Sprites/32-bit Sprite Models/Bullies/Joey/Joey.png")
@@ -86,6 +90,7 @@ func start_interruption() -> void:
 	store_and_disable_character_collisions(joey)
 	store_and_disable_character_collisions(joseph)
 
+	await stage_bullies_from_comlab()
 	await start_far_end_callout()
 	await start_bully_conversation()
 
@@ -133,6 +138,93 @@ func start_interruption() -> void:
 	stop_character(joseph)
 
 	running = false
+
+
+func stage_bullies_from_comlab() -> void:
+	if player == null:
+		return
+
+	# The bullies begin at the actual ComLab 202 doorway instead of appearing
+	# beside the player. The three offsets make them look like a group leaving
+	# the room together.
+	var comlab_exit := get_node_or_null("../Door_Room202/Area2D/CollisionShape2D") as CollisionShape2D
+	var exit_position: Vector2 = player.global_position + Vector2(-180.0, 0.0)
+	if comlab_exit != null:
+		exit_position = comlab_exit.global_position
+
+	joe.global_position = exit_position + Vector2(0.0, 34.0)
+	joey.global_position = exit_position + Vector2(-26.0, 0.0)
+	joseph.global_position = exit_position + Vector2(0.0, -34.0)
+
+	var player_camera := player.get_node_or_null("Camera2D") as Camera2D
+	if player_camera != null:
+		player_camera.enabled = false
+
+	if cinematic_camera != null:
+		cinematic_camera.enabled = true
+		cinematic_camera.zoom = BULLY_CAMERA_ZOOM
+		cinematic_camera.global_position = get_bully_group_center()
+
+	for character in [joe, joey, joseph]:
+		if character != null:
+			set_walk_animation(character, Vector2.RIGHT)
+
+	# Bring the camera with the bullies while they leave ComLab 202 and approach
+	# the player. The conversation starts only after this movement is complete.
+	var targets := {
+		joe: player.global_position + Vector2(BULLY_APPROACH_STOP_DISTANCE, 34.0),
+		joey: player.global_position + Vector2(BULLY_APPROACH_STOP_DISTANCE + 20.0, 0.0),
+		joseph: player.global_position + Vector2(BULLY_APPROACH_STOP_DISTANCE, -34.0)
+	}
+
+	var finished: Dictionary = {}
+	for character in targets:
+		finished[character] = false
+
+	while not (finished[joe] and finished[joey] and finished[joseph]):
+		var delta: float = get_process_delta_time()
+
+		for character in targets:
+			if finished[character] or character == null:
+				continue
+
+			character.global_position = character.global_position.move_toward(
+				targets[character],
+				BULLY_APPROACH_SPEED * delta
+			)
+
+			if character.global_position.distance_to(targets[character]) <= 1.0:
+				character.global_position = targets[character]
+				finished[character] = true
+				stop_character(character)
+
+		if cinematic_camera != null:
+			cinematic_camera.global_position = cinematic_camera.global_position.lerp(
+				get_bully_group_center(),
+				min(1.0, 7.0 * delta)
+			)
+
+		await get_tree().process_frame
+
+	for character in [joe, joey, joseph]:
+		if character != null:
+			stop_character(character)
+
+	# Give the player and bullies a short establishing hold before the first
+	# spoken line so the approach reads as an intentional scene.
+	await get_tree().create_timer(0.25).timeout
+
+
+func get_bully_group_center() -> Vector2:
+	var center := Vector2.ZERO
+	var count := 0
+	for character in [joe, joey, joseph]:
+		if character != null:
+			center += character.global_position
+			count += 1
+	if count == 0:
+		return player.global_position
+	return center / float(count)
 
 
 func start_far_end_callout() -> void:
@@ -464,6 +556,12 @@ func sir_charles_interrupt_bullies() -> void:
 	# Sir Charles does not remain in the hallway after telling the player to go to class.
 	await send_sir_charles_into_lecture_room()
 
+	if cinematic_camera != null:
+		cinematic_camera.enabled = false
+	var player_camera := player.get_node_or_null("Camera2D") as Camera2D
+	if player_camera != null:
+		player_camera.enabled = true
+
 
 func run_bullies_away() -> void:
 
@@ -503,13 +601,10 @@ func run_bullies_away() -> void:
 	var timer := 0.0
 
 	while timer < BULLY_RUN_DURATION:
-
 		var delta := get_process_delta_time()
-
 		for character in characters:
 			if character != null:
 				character.global_position.x -= BULLY_RUN_SPEED * delta
-
 		timer += delta
 		await get_tree().process_frame
 
@@ -526,13 +621,11 @@ func send_sir_charles_into_lecture_room() -> void:
 
 	var lecture_door_position := find_lecture_room_door_position()
 
-	# Walk back toward the Lecture Room entrance after finishing the conversation.
 	face_character_toward_position(sir_charles, lecture_door_position)
 
 	var last_time := Time.get_ticks_msec() / 1000.0
 
 	while sir_charles.global_position.distance_to(lecture_door_position) > 8.0:
-
 		var current_time := Time.get_ticks_msec() / 1000.0
 		var delta: float = max(0.0, current_time - last_time)
 		last_time = current_time
@@ -558,7 +651,6 @@ func send_sir_charles_into_lecture_room() -> void:
 	set_walk_animation(sir_charles, enter_direction)
 
 	var enter_timer := 0.0
-
 	while enter_timer < SIR_CHARLES_ENTER_EXTRA_TIME:
 		sir_charles.global_position += enter_direction * SIR_CHARLES_ENTER_SPEED * get_process_delta_time()
 		enter_timer += get_process_delta_time()
@@ -600,16 +692,17 @@ func face_character_toward_position(
 		sprite.play(animation_name)
 		sprite.pause()
 
+
 func approach_player_with_sir_charles() -> void:
 
 	if sir_charles == null or player == null:
 		return
 
-	var target_position := player.global_position + Vector2(0.0, -SIR_CHARLES_STOP_DISTANCE)
+	var approach_direction := Vector2.RIGHT if sir_charles.global_position.x < player.global_position.x else Vector2.LEFT
+	var target_position := player.global_position + approach_direction * SIR_CHARLES_STOP_DISTANCE
 	var last_time := Time.get_ticks_msec() / 1000.0
 
 	while sir_charles.global_position.distance_to(target_position) > 6.0:
-
 		var current_time := Time.get_ticks_msec() / 1000.0
 		var delta: float = max(0.0, current_time - last_time)
 		last_time = current_time
